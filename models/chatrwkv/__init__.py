@@ -176,7 +176,7 @@ The following is a verbose and detailed conversation between an AI assistant cal
         return self.all_state[n]['out']
 
 
-    def stream_chat(self, message: str, is_web=False) -> str:
+    def stream_chat(self, message, history, is_web=False) -> str:
         result = ""
         srv = 'dummy_server'
 

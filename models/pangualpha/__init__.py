@@ -96,7 +96,7 @@ def generate(model, context_tokens, args, tokenizer, max_num=50, begin=0):
             if character == '问' or character == '答':
                 return text_out
             text_out += character
-            print(character, end='')
+            # print(character, end='')
             sys.stdout.flush()
 
         tokens[0][valid_length] = p_args[target_index]
@@ -106,6 +106,61 @@ def generate(model, context_tokens, args, tokenizer, max_num=50, begin=0):
     length = np.sum(outputs != tokenizer.pad_id)
     outputs = outputs[0][:length]
     return text_out
+
+def generate_stream(model, context_tokens, args, tokenizer, max_num=50, begin=0):
+
+    valid_length = len(context_tokens)
+    context_tokens_, context_lengths = pad_batch([context_tokens],
+                                                 tokenizer.pad_id, args)
+    context_tokens_tensor = torch.cuda.LongTensor(context_tokens_)
+    tokens, attention_mask, position_ids = get_batch(context_tokens_tensor)
+    type_ids = None
+    bs,_  = tokens.shape
+    cnt = 0
+    text_out = ""
+    while valid_length < args.seq_length:
+        with torch.no_grad():
+            logits = model(tokens,
+                           position_ids,
+                           attention_mask,
+                           tokentype_ids=type_ids,
+                           forward_method_parallel_output=False)
+        logits = logits[:,:,:tokenizer.vocab_size].cpu()
+        logits = logits.numpy()
+        logits = logits.reshape(bs, args.seq_length, -1)
+        probs = logits[0, valid_length-1, :]
+        p_args = probs.argsort()[::-1][:args.top_k]
+
+        p = probs[p_args]
+        p = p / sum(p)
+        for i in range(1000):
+            target_index = np.random.choice(len(p), p=p)
+            if p_args[target_index] != tokenizer.unk:
+                break
+
+        if p_args[target_index] == tokenizer.eod or \
+                valid_length == args.seq_length-1 or cnt>=max_num:
+            outputs = tokens.cpu().numpy()
+            return text_out
+
+        if (begin > 0) and (valid_length >= begin):
+            #print(p_args[target_index])
+            character = tokenizer.convert_ids_to_tokens([int(p_args[target_index])])
+            if character == '问' or character == '答':
+                return text_out
+            text_out += character
+            yield text_out
+            # print(character, end='')
+            # sys.stdout.flush()
+
+        tokens[0][valid_length] = p_args[target_index]
+        valid_length += 1
+        cnt += 1
+
+    length = np.sum(outputs != tokenizer.pad_id)
+    outputs = outputs[0][:length]
+    return
+
 
 
 class PanGuAlphaModel(LLMModel):
@@ -133,7 +188,7 @@ class PanGuAlphaModel(LLMModel):
 
         initialize_megatron(extra_args_provider=add_text_generate_args,
                         args_defaults={'tokenizer_type': 'GPT2BPETokenizer'})
-
+        self.tokenizer = None
         # Set up model and load checkpoint.
         self.model = megatron_get_model(model_provider)
         self.model.eval()
@@ -160,6 +215,17 @@ class PanGuAlphaModel(LLMModel):
         text = "问：" + text + "？答："
         context_tokens = tokenizer.tokenize(text)
         return generate(self.model, context_tokens, self.args, tokenizer, 100, len(text))
+
+    def stream_chat(self, text, history=[]):
+        if self.tokenizer is None:
+            self.tokenizer = get_tokenizer()
+            self.tokenizer.tokenize("init")
+        text = "问：" + text + "？答："
+        context_tokens = self.tokenizer.tokenize(text)
+        yield from generate_stream(self.model, context_tokens, self.args, self.tokenizer, 100, len(text))
+
+    def reset(self):
+        pass
 
     def run_web_demo(self, input_text, history=[]):
         self.history = []
