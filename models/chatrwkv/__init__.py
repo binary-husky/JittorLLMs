@@ -319,7 +319,7 @@ The following is a verbose and detailed conversation between an AI assistant cal
         return text_out
 
     def reset(self):
-        self.run('+reset')
+        self.stream_chat('+reset')
 
 
 def get_model(args):
