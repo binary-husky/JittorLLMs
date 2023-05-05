@@ -203,6 +203,7 @@ The following is a verbose and detailed conversation between an AI assistant cal
             out = self.load_all_stat('', 'chat_init')
             self.save_all_stat(srv, 'chat', out)
             print("Chat reset.\n")
+            return None
 
         elif msg[:5].lower() == '+gen ' or msg[:4].lower() == '+qa ' or msg[:4].lower() == '+qq ' or msg.lower() == '+++' or msg.lower() == '++':
 
